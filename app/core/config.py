@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_embedding_model: str = "gemini-embedding-2"
+    gemini_temperature: float = 0
     pinecone_index_name: str = "document-support-rag"
     pinecone_namespace: str = "document-support-kb"
     top_k: int = 5
