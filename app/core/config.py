@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     admin_api_key: str = "change-me"
     audit_db_path: str = str(BASE_DIR / "data" / "audit.db")
     upload_dir: str = str(BASE_DIR / "uploads")
-    sample_docs_dir: str = str(BASE_DIR / "data" / "sample_kb")
+    sample_docs_dir: str = str(BASE_DIR / "data" / "information_kb")
 
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8")
 
