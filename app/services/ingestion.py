@@ -2,10 +2,10 @@ from pathlib import Path
 from typing import Iterable
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader , CSVLoader , UnstructuredXMLLoader
 from docx import Document as DocxDocument
 
-SUPPORTED_FILE_TYPES = [".pdf", ".txt", ".docx" , ".md"]
+SUPPORTED_FILE_TYPES = [".pdf", ".txt", ".docx" , ".md" , '.csv' , '.xlsx']
 
 # Loads a file and returns an iterable of Document objects based on the file type.
 def load_file(file_path: str) -> Iterable[Document]:
@@ -22,6 +22,12 @@ def load_file(file_path: str) -> Iterable[Document]:
         return [Document(page_content=text, metadata={"source": str(file_path)})]
     if file.endswith(".md"):
         loader = TextLoader(str(file_path), encoding="utf-8")
+        return loader.load()
+    if file.endswith(".csv"):
+        loader = CSVLoader(str(file_path))
+        return loader.load()
+    if file.endswith(".xlsx"):
+        loader = UnstructuredXMLLoader(str(file_path))
         return loader.load()
     return ValueError(f"Unsupported file type: {file_path.suffix}")
 
