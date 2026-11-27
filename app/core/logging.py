@@ -1,5 +1,6 @@
 import logging
 
+# Logging configuration for the application, setting the log level, format, and handlers.
 def logging_config() -> None:
     """
     Configures the logging settings for the application.

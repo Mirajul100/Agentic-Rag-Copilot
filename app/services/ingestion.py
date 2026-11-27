@@ -10,17 +10,17 @@ SUPPORTED_FILE_TYPES = [".pdf", ".txt", ".docx" , ".md"]
 # Loads a file and returns an iterable of Document objects based on the file type.
 def load_file(file_path: str) -> Iterable[Document]:
     file = file_path.suffix.lower()
-    if file == ".pdf":
+    if file.endswith(".pdf"):
         loader = PyPDFLoader(str(file_path))
         return loader.load()
-    if file == ".txt":
+    if file.endswith(".txt"):
         loader = TextLoader(str(file_path), encoding="utf-8")
         return loader.load()
-    if file == ".docx":
+    if file.endswith(".docx"):
         doc = DocxDocument(str(file_path))
         text = "\n".join([para.text for para in doc.paragraphs])
         return [Document(page_content=text, metadata={"source": str(file_path)})]
-    if file == ".md":
+    if file.endswith(".md"):
         loader = TextLoader(str(file_path), encoding="utf-8")
         return loader.load()
     return ValueError(f"Unsupported file type: {file_path.suffix}")

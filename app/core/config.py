@@ -4,6 +4,7 @@ from functools import lru_cache
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
+# Settings class for application configuration, including API keys, model settings, and file paths.
 class Settings(BaseSettings):
     app_name: str = "Agentic RAG Copilot"
     app_env: str = "development"
@@ -22,7 +23,8 @@ class Settings(BaseSettings):
     sample_docs_dir: str = str(BASE_DIR / "data" / "sample_kb")
 
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8")
-    
+
+# Caching the settings instance to avoid reloading from the environment multiple times.
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
