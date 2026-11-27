@@ -1,6 +1,8 @@
-from app.core.config import get_settings
+from pathlib import Path
+from app.services.ingestion import load_file, split_documents
 
-settings = get_settings()
+doc = Path("data/information_kb/project.pdf")
+documents = load_file(doc)
+split_docs = split_documents(documents)
 
-print(f"App Name: {settings.app_name}")
-print(f"App Environment: {settings.app_env}")
+print(len(split_docs))
