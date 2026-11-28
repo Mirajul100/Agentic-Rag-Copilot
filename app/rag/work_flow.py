@@ -16,6 +16,23 @@ _web_search = None
 # Nodes whose LLM tokens should be streamed to the user (excludes router/graders/rewriter)
 ANSWER_NODES = {"generate_from_kb", "generate_from_web", "direct_answer"}
 
+
+def content_to_text(content) -> str:
+    """Extract readable text from plain or structured LangChain message content."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(content_to_text(part) for part in content)
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        nested = content.get("content")
+        if isinstance(nested, (str, list)):
+            return content_to_text(nested)
+    return ""
+
+
 def llm():
     global _llm
     if _llm is None:
@@ -115,11 +132,11 @@ def after_web(state: AgentState) -> Literal["generate_from_web", "rewrite_query"
     return "insufficient"
 
 def rewrite_query(state: AgentState):
-    rewritten = llm().invoke(f"""
+    rewritten = content_to_text(llm().invoke(f"""
 Rewrite this IT support question for better private knowledge retrieval and vendor web search.
 Preserve intent, add useful technical keywords, do not answer, return only the query.
 Question: {state['question']}
-""").content.strip()
+""").content).strip()
     return {
         "current_query": rewritten,
         "retry_count": state["retry_count"] + 1,
@@ -129,12 +146,12 @@ Question: {state['question']}
 def generate_from_kb(state: AgentState):
     context = "\n\n".join(f"[Source: {d.metadata.get('source','unknown')}]\n{d.page_content}" for d in state["kb_docs"])
     # Keep .invoke() here; LangGraph intercepts it automatically during graph.stream()
-    answer = llm().invoke(f"""
+    answer = content_to_text(llm().invoke(f"""
 You are an Daffodil internal university support copilot. Answer ONLY from the private university KB below.
 Be concise, actionable, and safe. If steps are present, present them clearly.
 Do not invent policy details. Mention that the answer is based on the university's private knowledge base.
 Question: {state['question']}\n\nPrivate KB:\n{context}
-""").content
+""").content)
     citations = []
     seen = set()
     for d in state["kb_docs"]:
@@ -145,11 +162,11 @@ Question: {state['question']}\n\nPrivate KB:\n{context}
     return {"answer": answer, "source_used": "private_kb", "citations": citations, "trace": add_trace(state, "Answer generation → PRIVATE KB")}
 
 def generate_from_web(state: AgentState):
-    answer = llm().invoke(f"""
+    answer = content_to_text(llm().invoke(f"""
 You are an Daffodil internal university support copilot. The private university KB was insufficient.
 Answer ONLY from the web evidence below. Clearly say this is external web information and may need IT validation before changing university-managed systems.
 Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
-""").content
+""").content)
     return {
         "answer": answer,
         "source_used": "web_search",
@@ -158,7 +175,9 @@ Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
     }
 
 def direct_answer(state: AgentState):
-    answer = llm().invoke(f"Respond briefly and naturally to: {state['question']}").content
+    answer = content_to_text(
+        llm().invoke(f"Respond briefly and naturally to: {state['question']}").content
+    )
     return {"answer": answer, "source_used": "direct", "trace": add_trace(state, "Direct response → no retrieval")}
 
 def insufficient(state: AgentState):
@@ -233,7 +252,9 @@ def ask_stream(question: str):
             msg_chunk, metadata = data
             # Only stream tokens from final answer nodes (ignore router/grader JSON)
             if metadata.get("langgraph_node") in ANSWER_NODES and msg_chunk.content:
-                yield {"type": "token", "content": msg_chunk.content}
+                text = content_to_text(msg_chunk.content)
+                if text:
+                    yield {"type": "token", "content": text}
 
         elif mode == "updates":
             for node_name, state_update in data.items():

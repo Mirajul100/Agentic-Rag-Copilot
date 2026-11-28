@@ -6,10 +6,26 @@
   <meta name="theme-color" content="#f5f3ed">
   <meta name="description" content="Ask questions about Daffodil University and get answers grounded in university knowledge.">
   <title>University support · Daffodil</title>
+  <script>
+    try {
+      const mode = localStorage.getItem("daffodil-theme");
+      const selected = ["system", "light", "dark"].includes(mode) ? mode : "system";
+      document.documentElement.dataset.themeMode = selected;
+      document.documentElement.dataset.theme =
+        selected === "system"
+          ? matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+          : selected;
+    } catch {
+      document.documentElement.dataset.themeMode = "system";
+      document.documentElement.dataset.theme =
+        matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+  </script>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Workspace">
       <a class="brand" href="/" aria-label="Daffodil support home">
@@ -46,10 +62,19 @@
       </div>
     </aside>
 
-    <main class="main-panel">
+    <main class="main-panel" id="main-content" tabindex="-1">
       <header class="topbar">
         <div class="breadcrumb"><span>Support desk</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg><strong>Ask a question</strong></div>
-        <div class="service-state" id="service-state" data-state="checking"><span class="state-dot"></span><span id="service-label">Checking service</span></div>
+        <div class="topbar-actions">
+          <label class="theme-control" for="theme-select">Theme
+            <select id="theme-select" aria-label="Theme mode">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <div class="service-state" id="service-state" data-state="checking"><span class="state-dot"></span><span id="service-label">Checking service</span></div>
+        </div>
       </header>
 
       <section class="conversation" aria-label="Conversation">
@@ -68,7 +93,8 @@
           </div>
         </div>
 
-        <div class="messages" id="messages" aria-live="polite" aria-relevant="additions text"></div>
+        <div class="messages" id="messages" aria-live="off"></div>
+        <p class="sr-only" id="chat-status" role="status" aria-live="polite" aria-atomic="true"></p>
       </section>
 
       <footer class="composer-wrap">

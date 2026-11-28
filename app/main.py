@@ -6,11 +6,19 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.core.config import get_settings
+from app.services.audit import init_db
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name)
+
+
+@app.on_event("startup")
+def initialize_audit_database():
+    init_db()
+
+
 app.include_router(router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 

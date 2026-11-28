@@ -1,4 +1,6 @@
 import json
+import logging
+import uuid
 from pathlib import Path
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, UploadFile, File, HTTPException, Header
@@ -11,6 +13,7 @@ from app.services.audit import write_audit
 
 router = APIRouter(prefix="/api")
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 class ChatRequest(BaseModel):
     question: str = Field(..., description="The question to ask the RAG system.", min_length=2, max_length=3000)
@@ -23,7 +26,10 @@ def health_check():
 def chat(payload: ChatRequest):
     try:
         response = ask(payload.question)
-        write_audit(payload.question, response['source_used'], response.get('trace', []))
+        try:
+            write_audit(payload.question, response['source_used'], response.get('trace', []))
+        except Exception:
+            logger.exception("Could not write chat audit record")
         return {
             "answer": response['answer'],
             "source_used": response['source_used'],
@@ -51,7 +57,10 @@ async def chat_stream(payload: ChatRequest):
                 yield f"data: {json.dumps(event)}\n\n"
             
             # Write audit log after stream finishes successfully
-            write_audit(payload.question, source_used or "unknown", trace_list)
+            try:
+                write_audit(payload.question, source_used or "unknown", trace_list)
+            except Exception:
+                logger.exception("Could not write streamed chat audit record")
             
             # Send completion signal
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -68,7 +77,10 @@ async def upload_document(file: UploadFile = File(...)
     """Uploads a document, parses it, chunks it, and adds it to the Pinecone vector store."""
     if admin_key != settings.admin_password:
         raise HTTPException(status_code=403, detail="Unauthorized: Invalid admin password.")
-    file_extension = Path(file.filename).suffix.lower()
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="The uploaded file has no filename.")
+    filename = Path(file.filename).name
+    file_extension = Path(filename).suffix.lower()
     if file_extension not in SUPPORTED_FILE_TYPES:
         raise HTTPException(
             status_code=400,
@@ -78,30 +90,39 @@ async def upload_document(file: UploadFile = File(...)
     # Save uploaded file temporarily to disk for processing
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / Path(file.filename).name  # Use only the filename to avoid directory traversal
+    file_path = upload_dir / f"{uuid.uuid4().hex}{file_extension}"
     
     try:
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="The uploaded file is empty.")
         with open(file_path, "wb") as f:
             f.write(contents)
             
         # Load and split documents
-        raw_documents = load_file(str(file_path))
+        raw_documents = list(load_file(str(file_path)))
+        if not raw_documents or not any(doc.page_content.strip() for doc in raw_documents):
+            raise HTTPException(status_code=400, detail="No readable text was found in the uploaded document.")
+        for document in raw_documents:
+            document.metadata["source"] = filename
         split_docs = split_documents(raw_documents)
+        if not split_docs:
+            raise HTTPException(status_code=400, detail="No readable text was found in the uploaded document.")
         
         # Add to vector store
         add_documents_to_vector_store(split_docs)
         
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": filename,
             "chunks_added": len(split_docs),
-            "message": f"Successfully processed and indexed {file.filename}."
+            "message": f"Successfully processed and indexed {filename}."
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file upload: {str(e)}")
     finally:
-        # Optional: clean up local temp file if desired
         if file_path.exists():
-            pass
+            file_path.unlink()

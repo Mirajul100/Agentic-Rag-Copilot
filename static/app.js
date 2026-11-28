@@ -3,13 +3,40 @@ const questionInput = document.querySelector("#question-input");
 const sendButton = document.querySelector("#send-button");
 const welcome = document.querySelector("#welcome");
 const messages = document.querySelector("#messages");
+const chatStatus = document.querySelector("#chat-status");
 const serviceState = document.querySelector("#service-state");
 const serviceLabel = document.querySelector("#service-label");
+const themeSelect = document.querySelector("#theme-select");
+const themeColor = document.querySelector('meta[name="theme-color"]');
 const uploadDialog = document.querySelector("#upload-dialog");
 const uploadForm = document.querySelector("#upload-form");
 const fileInput = document.querySelector("#document-file");
 const uploadResult = document.querySelector("#upload-result");
 const toast = document.querySelector("#toast");
+const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+
+function applyTheme(mode, save = false) {
+  document.documentElement.dataset.themeMode = mode;
+  document.documentElement.dataset.theme =
+    mode === "system" ? (systemColorScheme.matches ? "dark" : "light") : mode;
+  themeSelect.value = mode;
+  if (save) {
+    try {
+      localStorage.setItem("daffodil-theme", mode);
+    } catch {
+      // Theme selection still applies for this page when storage is unavailable.
+    }
+  }
+  themeColor.content = getComputedStyle(document.documentElement)
+    .getPropertyValue("--paper")
+    .trim();
+}
+
+themeSelect.value = document.documentElement.dataset.themeMode || "system";
+themeSelect.addEventListener("change", () => applyTheme(themeSelect.value, true));
+systemColorScheme.addEventListener("change", () => {
+  if (themeSelect.value === "system") applyTheme("system");
+});
 
 const icons = {
   assistant:
@@ -43,6 +70,7 @@ function scrollToLatest() {
 function addUserMessage(text) {
   const article = document.createElement("article");
   article.className = "message message-user";
+  article.setAttribute("aria-label", "Your question");
   const bubble = document.createElement("div");
   bubble.className = "user-bubble";
   bubble.textContent = text;
@@ -54,6 +82,7 @@ function addUserMessage(text) {
 function createAssistantMessage() {
   const article = document.createElement("article");
   article.className = "message message-assistant";
+  article.setAttribute("aria-label", "Daffodil Copilot answer");
   const mark = document.createElement("div");
   mark.className = "message-mark";
   mark.innerHTML = icons.assistant;
@@ -200,7 +229,8 @@ function showToast(message) {
 
 function handleEvent(event, state) {
   if (event.type === "token") {
-    state.answer += event.content || "";
+    const content = typeof event.content === "string" ? event.content : "";
+    state.answer += content;
     state.copy.textContent = state.answer;
   } else if (event.type === "trace" && event.step) {
     state.trace.push(event.step);
@@ -258,6 +288,7 @@ async function askQuestion(question) {
   addUserMessage(question);
   const assistant = createAssistantMessage();
   const state = { answer: "", source: "", citations: [], trace: [], error: "" };
+  chatStatus.textContent = "Finding an answer.";
   sendButton.disabled = true;
   questionInput.disabled = true;
   scrollToLatest();
@@ -282,6 +313,7 @@ async function askQuestion(question) {
     addSource(assistant.body, state.source);
     addCitations(assistant.body, state.citations);
     addTrace(assistant.body, state.trace);
+    chatStatus.textContent = "Answer ready. The latest response is in the conversation.";
     if (state.source === "insufficient_evidence")
       showToast("The available sources did not support a confident answer");
   } catch (error) {
@@ -289,6 +321,7 @@ async function askQuestion(question) {
     assistant.copy.textContent =
       error.message ||
       "Something went wrong while contacting the support service";
+    chatStatus.textContent = "The answer could not be completed. " + assistant.copy.textContent;
     showToast("The question could not be answered");
   } finally {
     sendButton.disabled = false;
