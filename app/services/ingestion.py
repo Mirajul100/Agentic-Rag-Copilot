@@ -9,6 +9,7 @@ SUPPORTED_FILE_TYPES = [".pdf", ".txt", ".docx" , ".md" , '.csv' , '.xlsx']
 
 # Loads a file and returns an iterable of Document objects based on the file type.
 def load_file(file_path: str) -> Iterable[Document]:
+    file_path = Path(file_path)
     file = file_path.suffix.lower()
     if file.endswith(".pdf"):
         loader = PyPDFLoader(str(file_path))
@@ -29,7 +30,7 @@ def load_file(file_path: str) -> Iterable[Document]:
     if file.endswith(".xlsx"):
         loader = UnstructuredXMLLoader(str(file_path))
         return loader.load()
-    return ValueError(f"Unsupported file type: {file_path.suffix}")
+    raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
 # Splits a list of Document objects into smaller chunks based on the specified chunk size and overlap.
 def split_documents(documents: Iterable[Document]) -> list[Document]:

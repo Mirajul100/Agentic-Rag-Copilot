@@ -19,12 +19,12 @@ ANSWER_NODES = {"generate_from_kb", "generate_from_web", "direct_answer"}
 def llm():
     global _llm
     if _llm is None:
-        if not settings.google_api_key:
-            raise RuntimeError("GOOGLE_API_KEY is missing")
+        if not settings.gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY is missing")
         _llm = ChatGoogleGenerativeAI(
-            model=settings.google_model,
+            model=settings.gemini_model,
             temperature=settings.gemini_temperature,
-            api_key=settings.google_api_key,
+            api_key=settings.gemini_api_key,
         )
     return _llm
 
@@ -150,7 +150,12 @@ You are an Daffodil internal university support copilot. The private university 
 Answer ONLY from the web evidence below. Clearly say this is external web information and may need IT validation before changing university-managed systems.
 Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
 """).content
-    return {"answer": answer, "source_used": "web_search", "trace": add_trace(state, "Answer generation → WEB SEARCH")}
+    return {
+        "answer": answer,
+        "source_used": "web_search",
+        "citations": state.get("citations", []),
+        "trace": add_trace(state, "Answer generation → WEB SEARCH"),
+    }
 
 def direct_answer(state: AgentState):
     answer = llm().invoke(f"Respond briefly and naturally to: {state['question']}").content

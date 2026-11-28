@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     pinecone_namespace: str = "document-support-kb"
     top_k: int = 5
     max_retries: int = 3
-    admin_api_key: str = "change-me"
+    admin_password: str = ""
     audit_db_path: str = str(BASE_DIR / "data" / "audit.db")
     upload_dir: str = str(BASE_DIR / "uploads")
     sample_docs_dir: str = str(BASE_DIR / "data" / "information_kb")

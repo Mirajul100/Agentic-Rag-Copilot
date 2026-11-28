@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f3ed">
+  <meta name="description" content="Ask questions about Daffodil University and get answers grounded in university knowledge.">
+  <title>University support · Daffodil</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Workspace">
+      <a class="brand" href="/" aria-label="Daffodil support home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span><strong>Daffodil</strong><small>University support</small></span>
+      </a>
+
+      <button class="new-question" id="new-question" type="button">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+        <span>New question</span>
+        <kbd>⌘ K</kbd>
+      </button>
+
+      <div class="side-section">
+        <p class="section-label">Try asking</p>
+        <div class="prompt-list">
+          <button class="prompt-link" type="button" data-prompt="What is the process for paying tuition fees?">Tuition payment process</button>
+          <button class="prompt-link" type="button" data-prompt="How do I get help with a university project?">Project support</button>
+          <button class="prompt-link" type="button" data-prompt="Where can I find university policies?">University policies</button>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="knowledge-note">
+          <span class="note-mark" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 3.5h8l4 4v9H4zM12 3.5v4h4M7 11h6M7 14h6"/></svg></span>
+          <span><strong>University knowledge</strong><small>Private sources are checked first</small></span>
+        </div>
+        <button class="admin-link" id="open-upload" type="button">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11v5h12v-5"/></svg>
+          <span>Add a document</span>
+          <span class="admin-lock" aria-label="Admin key required"><svg viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 0 1 6 0v3"/></svg></span>
+        </button>
+        <p class="sidebar-foot">Answers can be checked against their sources</p>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="breadcrumb"><span>Support desk</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg><strong>Ask a question</strong></div>
+        <div class="service-state" id="service-state" data-state="checking"><span class="state-dot"></span><span id="service-label">Checking service</span></div>
+      </header>
+
+      <section class="conversation" aria-label="Conversation">
+        <div class="welcome" id="welcome">
+          <div class="welcome-kicker"><span class="kicker-rule"></span> Daffodil University <span class="kicker-rule"></span></div>
+          <h1>Answers grounded<br>in your university</h1>
+          <p class="welcome-copy">Ask about policies, projects, payments, or university systems. The copilot checks internal sources first and shows where each answer came from.</p>
+          <div class="welcome-stamp" aria-hidden="true">
+            <div class="stamp-core"><span class="stamp-path"><i></i><i></i><i></i></span><span class="stamp-caption">Evidence<br>before answer</span></div>
+            <span class="stamp-orbit orbit-one"></span><span class="stamp-orbit orbit-two"></span>
+            <span class="stamp-label stamp-private">Private knowledge</span><span class="stamp-label stamp-web">Web fallback</span>
+          </div>
+          <div class="suggestions" aria-label="Suggested questions">
+            <button type="button" class="suggestion" data-prompt="What is the process for paying tuition fees?"><span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M3 8h14M6 12h3"/></svg></span><span><strong>Tuition and payments</strong><small>Find payment steps and guidance</small></span><svg class="suggestion-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9m-4-4 4 4-4 4"/></svg></button>
+            <button type="button" class="suggestion" data-prompt="How do I get help with a university project?"><span class="suggestion-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 5.5h5l1.5 2H17v8H3zM3 5.5v-1h5l1.5 2"/></svg></span><span><strong>Projects and systems</strong><small>Ask about internal processes</small></span><svg class="suggestion-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9m-4-4 4 4-4 4"/></svg></button>
+          </div>
+        </div>
+
+        <div class="messages" id="messages" aria-live="polite" aria-relevant="additions text"></div>
+      </section>
+
+      <footer class="composer-wrap">
+        <form class="composer" id="chat-form">
+          <label class="sr-only" for="question-input">Your question</label>
+          <textarea id="question-input" name="question" rows="1" maxlength="3000" placeholder="Ask about university policies, projects, or systems" required></textarea>
+          <div class="composer-bottom"><span class="composer-hint"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8 3.5 5.4v4.5c0 3.5 2.4 5.8 6.5 7.3 4.1-1.5 6.5-3.8 6.5-7.3V5.4zM7 10l2 2 4-4"/></svg> University sources checked first</span><button class="send-button" id="send-button" type="submit" aria-label="Send question"><span>Ask</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h13m-5-5 5 5-5 5"/></svg></button></div>
+        </form>
+        <p class="composer-disclaimer">For important decisions, confirm details with the relevant university office</p>
+      </footer>
+    </main>
+  </div>
+
+  <dialog class="upload-dialog" id="upload-dialog" aria-labelledby="upload-title">
+    <form class="dialog-inner" id="upload-form">
+      <div class="dialog-heading"><div><p class="section-label">Knowledge base</p><h2 id="upload-title">Add a university document</h2></div><button class="icon-button" id="close-upload" type="button" aria-label="Close upload dialog"><svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></svg></button></div>
+      <p class="dialog-copy">Upload a source for the copilot to use when answering university questions. An admin key is required.</p>
+      <label class="field-label" for="admin-key">Admin key</label><input class="text-field" id="admin-key" name="admin_key" type="password" autocomplete="current-password" required>
+      <label class="field-label" for="document-file">Document</label>
+      <label class="file-picker" for="document-file"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11v5h12v-5"/></svg><span id="file-label">Choose a file to upload</span><small>PDF, DOCX, TXT, MD, CSV, XLSX</small></label>
+      <input class="sr-only" id="document-file" name="file" type="file" accept=".pdf,.docx,.txt,.md,.csv,.xlsx" required>
+      <div class="upload-result" id="upload-result" role="status"></div>
+      <div class="dialog-actions"><button class="text-button" id="cancel-upload" type="button">Cancel</button><button class="primary-button" id="upload-button" type="submit">Index document</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
