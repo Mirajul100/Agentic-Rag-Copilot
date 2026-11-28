@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_embedding_model: str = "gemini-embedding-2"
+    # Keep below the project's active Gemini embedding RPM quota.
+    gemini_embedding_requests_per_minute: int = 80
     gemini_temperature: float = 0
     pinecone_index_name: str = "document-support-rag"
     pinecone_namespace: str = "document-support-kb"

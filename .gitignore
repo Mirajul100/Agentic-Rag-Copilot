@@ -12,6 +12,7 @@ env/
 .env
 .env.*
 data/
+uploads/
 
 db.sqlite3
 

@@ -1,4 +1,5 @@
 import time
+from threading import Lock
 from pinecone import Pinecone, ServerlessSpec, PineconeException
 from app.core.config import get_settings
 from langchain_pinecone import PineconeVectorStore
@@ -8,6 +9,63 @@ settings = get_settings()
 
 _embeddings = None
 _vector_store = None
+
+EMBEDDING_BATCH_SIZE = 20
+EMBEDDING_QUOTA_RETRIES = 3
+
+
+class EmbeddingQuotaError(RuntimeError):
+    """Raised when Gemini's embedding quota remains exhausted after retries."""
+
+
+class QuotaAwareEmbeddings:
+    """Pace Gemini embedding inputs and retry transient quota responses."""
+
+    def __init__(self, embeddings, requests_per_minute: int):
+        self._embeddings = embeddings
+        self._requests_per_minute = max(1, requests_per_minute)
+        self._next_request_at = time.monotonic()
+        self._lock = Lock()
+
+    def _pace(self, input_count: int) -> None:
+        interval = input_count * 60 / self._requests_per_minute
+        with self._lock:
+            now = time.monotonic()
+            start_at = max(now, self._next_request_at)
+            self._next_request_at = start_at + interval
+        delay = start_at - now
+        if delay > 0:
+            time.sleep(delay)
+
+    @staticmethod
+    def _is_quota_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return any(marker in message for marker in ("resource_exhausted", "429", "quota", "rate limit"))
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        for attempt in range(EMBEDDING_QUOTA_RETRIES + 1):
+            self._pace(len(texts))
+            try:
+                return self._embeddings.embed_documents(texts, batch_size=len(texts))
+            except Exception as error:
+                if not self._is_quota_error(error):
+                    raise
+                if attempt == EMBEDDING_QUOTA_RETRIES:
+                    raise EmbeddingQuotaError(
+                        "Gemini's embedding quota is exhausted. Wait a minute and retry, "
+                        "or lower GEMINI_EMBEDDING_REQUESTS_PER_MINUTE to match your project's quota."
+                    ) from error
+                time.sleep(2 ** attempt)
+        raise AssertionError("Unreachable")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for offset in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+            vectors.extend(self._embed(texts[offset:offset + EMBEDDING_BATCH_SIZE]))
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed([text])[0]
 
 EMBEDDING_MODEL_DIMENSIONS = {
     "gemini-embedding-2": 3072,
@@ -27,9 +85,13 @@ def get_embeddings_model():
     if _embeddings is None:
         if not settings.gemini_api_key:
             raise ValueError("Gemini API key is not set in the configuration.")
-        _embeddings = GoogleGenerativeAIEmbeddings(
+        google_embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.gemini_embedding_model,
             google_api_key=settings.gemini_api_key,
+        )
+        _embeddings = QuotaAwareEmbeddings(
+            google_embeddings,
+            settings.gemini_embedding_requests_per_minute,
         )
     return _embeddings
 

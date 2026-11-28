@@ -63,7 +63,19 @@ async function checkService() {
 
 function scrollToLatest() {
   window.requestAnimationFrame(() =>
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }),
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    }),
+  );
+}
+
+function isNearLatest() {
+  return (
+    window.innerHeight + window.scrollY >=
+    document.documentElement.scrollHeight - 180
   );
 }
 
@@ -101,77 +113,149 @@ function createAssistantMessage() {
   role.append(time);
   const copy = document.createElement("div");
   copy.className = "message-copy";
+  const execution = document.createElement("details");
+  execution.className = "execution";
+  execution.open = true;
+  const executionSummary = document.createElement("summary");
+  executionSummary.textContent = "Working through your question";
+  const executionList = document.createElement("ol");
+  executionList.className = "execution-list";
+  execution.append(executionSummary, executionList);
   const typing = document.createElement("div");
   typing.className = "typing";
   typing.setAttribute("aria-label", "Preparing an answer");
   typing.innerHTML = "<i></i><i></i><i></i>";
   copy.append(typing);
-  body.append(role, copy);
+  body.append(role, execution, copy);
   article.append(mark, body);
   messages.append(article);
-  return { article, body, copy };
+  return { article, body, copy, execution, executionSummary, executionList };
+}
+
+function appendInlineMarkdown(container, text) {
+  const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index;
+    if (index > lastIndex) {
+      container.append(document.createTextNode(text.slice(lastIndex, index)));
+    }
+
+    const token = match[0];
+    let element;
+    let content;
+    if (token.startsWith("**") || token.startsWith("__")) {
+      element = document.createElement("strong");
+      content = token.slice(2, -2);
+    } else if (token.startsWith("`")) {
+      element = document.createElement("code");
+      content = token.slice(1, -1);
+    } else {
+      element = document.createElement("em");
+      content = token.slice(1, -1);
+    }
+    element.textContent = content;
+    container.append(element);
+    lastIndex = index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    container.append(document.createTextNode(text.slice(lastIndex)));
+  }
 }
 
 function renderAnswer(container, value) {
   container.replaceChildren();
   const lines = value.split(/\r?\n/);
   let list = null;
+  let listType = "";
   let paragraph = [];
   const flushParagraph = () => {
     if (!paragraph.length) return;
     const p = document.createElement("p");
-    p.textContent = paragraph.join(" ");
+    appendInlineMarkdown(p, paragraph.join(" "));
     container.append(p);
     paragraph = [];
   };
+
+  const appendListItem = (type, text, start = null) => {
+    flushParagraph();
+    if (!list || listType !== type) {
+      list = document.createElement(type);
+      listType = type;
+      if (type === "ol" && start !== null) list.start = start;
+      container.append(list);
+    }
+    const item = document.createElement("li");
+    appendInlineMarkdown(item, text);
+    list.append(item);
+  };
+
   for (const line of lines) {
-    const bullet = line.match(/^\s*[-*]\s+(.+)/);
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.+)/);
+    const bullet = line.match(/^\s*(?:[-*+]\s+|•\s+)(.+)/);
     if (!line.trim()) {
       flushParagraph();
       list = null;
+      listType = "";
+      continue;
+    }
+    if (ordered) {
+      appendListItem("ol", ordered[2], Number(ordered[1]));
       continue;
     }
     if (bullet) {
-      flushParagraph();
-      if (!list) {
-        list = document.createElement("ul");
-        container.append(list);
-      }
-      const item = document.createElement("li");
-      item.textContent = bullet[1];
-      list.append(item);
+      appendListItem("ul", bullet[1]);
       continue;
     }
-    if (/^\s*#{1,3}\s/.test(line)) {
+    const heading = line.match(/^\s*(#{1,3})\s+(.+)/);
+    if (heading) {
       flushParagraph();
       list = null;
-      const heading = document.createElement("p");
-      heading.className = "answer-heading";
-      heading.textContent = line.replace(/^\s*#{1,3}\s*/, "");
-      container.append(heading);
+      listType = "";
+      const level = heading[1].length;
+      const headingElement = document.createElement(`h${level + 1}`);
+      headingElement.className = "answer-heading";
+      appendInlineMarkdown(headingElement, heading[2]);
+      container.append(headingElement);
       continue;
     }
     list = null;
+    listType = "";
     paragraph.push(line.trim());
   }
   flushParagraph();
 }
 
-function addTrace(body, steps) {
-  if (!steps.length) return;
-  const details = document.createElement("details");
-  details.className = "trace";
-  const summary = document.createElement("summary");
-  summary.textContent = `Evidence trail · ${steps.length} ${steps.length === 1 ? "step" : "steps"}`;
-  const list = document.createElement("ol");
-  list.className = "trace-list";
-  steps.forEach((step) => {
+function updateToolProgress(event, state, assistant) {
+  let step = state.toolSteps.get(event.id);
+  if (!step) {
     const item = document.createElement("li");
-    item.textContent = step;
-    list.append(item);
-  });
-  details.append(summary, list);
-  body.append(details);
+    item.className = "execution-step";
+    const marker = document.createElement("span");
+    marker.className = "execution-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "execution-label";
+    const status = document.createElement("span");
+    status.className = "execution-state";
+    item.append(marker, label, status);
+    assistant.executionList.append(item);
+    step = { item, label, status };
+    state.toolSteps.set(event.id, step);
+  }
+
+  step.label.textContent = event.label || "Working";
+  step.item.dataset.state = event.status === "complete" ? "complete" : "running";
+  step.status.textContent =
+    event.status === "complete" ? event.detail || "Done" : "In progress";
+  assistant.executionSummary.textContent =
+    `Answer process · ${state.toolSteps.size} ${state.toolSteps.size === 1 ? "step" : "steps"}`;
+  chatStatus.textContent =
+    event.status === "complete"
+      ? `${step.label} complete.`
+      : `${step.label}. In progress.`;
 }
 
 function addSource(body, source) {
@@ -227,13 +311,31 @@ function showToast(message) {
   );
 }
 
-function handleEvent(event, state) {
+function handleEvent(event, state, assistant) {
   if (event.type === "token") {
     const content = typeof event.content === "string" ? event.content : "";
+    if (!content) return;
     state.answer += content;
-    state.copy.textContent = state.answer;
+    state.pendingText += content;
+    if (!state.streamNode) {
+      state.copy.replaceChildren();
+      state.streamNode = document.createTextNode("");
+      state.copy.append(state.streamNode);
+      state.copy.classList.add("is-streaming");
+    }
+    if (!state.renderFrame) {
+      state.renderFrame = window.requestAnimationFrame(() => {
+        const shouldFollow = isNearLatest();
+        state.streamNode.appendData(state.pendingText);
+        state.pendingText = "";
+        state.renderFrame = 0;
+        if (shouldFollow) scrollToLatest();
+      });
+    }
   } else if (event.type === "trace" && event.step) {
     state.trace.push(event.step);
+  } else if (event.type === "tool") {
+    updateToolProgress(event, state, assistant);
   } else if (event.type === "metadata") {
     state.source = event.source_used || state.source;
     state.citations = event.citations || state.citations;
@@ -243,7 +345,27 @@ function handleEvent(event, state) {
   }
 }
 
-async function readEventStream(response, state) {
+function flushStream(state) {
+  if (state.renderFrame) {
+    window.cancelAnimationFrame(state.renderFrame);
+    state.renderFrame = 0;
+  }
+  if (state.pendingText && state.streamNode) {
+    state.streamNode.appendData(state.pendingText);
+    state.pendingText = "";
+  }
+}
+
+function stopRunningSteps(state) {
+  state.toolSteps.forEach((step) => {
+    if (step.item.dataset.state === "running") {
+      step.item.dataset.state = "stopped";
+      step.status.textContent = "Stopped";
+    }
+  });
+}
+
+async function readEventStream(response, state, assistant) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -260,7 +382,7 @@ async function readEventStream(response, state) {
         .join("\n");
       if (!data) continue;
       try {
-        handleEvent(JSON.parse(data), state);
+        handleEvent(JSON.parse(data), state, assistant);
       } catch {
         /* Ignore malformed stream frames */
       }
@@ -275,7 +397,7 @@ async function readEventStream(response, state) {
       .trim();
     if (data) {
       try {
-        handleEvent(JSON.parse(data), state);
+        handleEvent(JSON.parse(data), state, assistant);
       } catch {
         /* Ignore malformed final frame */
       }
@@ -287,7 +409,17 @@ async function askQuestion(question) {
   welcome.hidden = true;
   addUserMessage(question);
   const assistant = createAssistantMessage();
-  const state = { answer: "", source: "", citations: [], trace: [], error: "" };
+  const state = {
+    answer: "",
+    source: "",
+    citations: [],
+    trace: [],
+    error: "",
+    toolSteps: new Map(),
+    pendingText: "",
+    streamNode: null,
+    renderFrame: 0,
+  };
   chatStatus.textContent = "Finding an answer.";
   sendButton.disabled = true;
   questionInput.disabled = true;
@@ -305,23 +437,35 @@ async function askQuestion(question) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.detail || `Request failed (${response.status})`);
     }
-    await readEventStream(response, state);
+    await readEventStream(response, state, assistant);
+    flushStream(state);
     if (state.error) throw new Error(state.error);
     if (!state.answer)
       throw new Error("No answer was returned. Please try again.");
     renderAnswer(assistant.copy, state.answer);
+    assistant.copy.classList.remove("is-streaming");
     addSource(assistant.body, state.source);
     addCitations(assistant.body, state.citations);
-    addTrace(assistant.body, state.trace);
+    assistant.executionSummary.textContent =
+      `Answer process · ${state.toolSteps.size} ${state.toolSteps.size === 1 ? "step" : "steps"}`;
     chatStatus.textContent = "Answer ready. The latest response is in the conversation.";
     if (state.source === "insufficient_evidence")
       showToast("The available sources did not support a confident answer");
   } catch (error) {
+    flushStream(state);
+    stopRunningSteps(state);
+    assistant.executionSummary.textContent = "Answer process stopped";
+    assistant.copy.classList.remove("is-streaming");
+    assistant.copy.replaceChildren();
+    if (state.answer) renderAnswer(assistant.copy, state.answer);
+    if (!state.answer) assistant.copy.textContent = "";
     assistant.copy.classList.add("error-copy");
-    assistant.copy.textContent =
-      error.message ||
-      "Something went wrong while contacting the support service";
-    chatStatus.textContent = "The answer could not be completed. " + assistant.copy.textContent;
+    const errorMessage =
+      error.message || "Something went wrong while contacting the support service";
+    const errorCopy = document.createElement("p");
+    errorCopy.textContent = errorMessage;
+    assistant.copy.append(errorCopy);
+    chatStatus.textContent = "The answer could not be completed. " + errorMessage;
     showToast("The question could not be answered");
   } finally {
     sendButton.disabled = false;
@@ -390,11 +534,43 @@ fileInput.addEventListener("change", () => {
     fileInput.files[0]?.name || "Choose a file to upload";
 });
 
+function formatApiError(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(formatApiError).filter(Boolean).join("; ");
+  }
+  if (!detail || typeof detail !== "object") return "";
+
+  const message = [
+    detail.message,
+    detail.msg,
+    formatApiError(detail.detail),
+    formatApiError(detail.error),
+  ].find((value) => typeof value === "string" && value.length > 0);
+  if (!message) return "";
+  const location = Array.isArray(detail.loc)
+    ? detail.loc.slice(1).filter((part) => typeof part === "string").join(" ")
+    : "";
+  return location ? `${location}: ${message}` : message;
+}
+
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const file = fileInput.files[0];
-  const key = document.querySelector("#admin-key").value;
-  if (!file || !key) return;
+  const adminKey = document.querySelector("#admin-key");
+  const key = adminKey.value;
+  if (!key.trim()) {
+    uploadResult.dataset.state = "error";
+    uploadResult.textContent = "Enter the admin key to index a document.";
+    adminKey.focus();
+    return;
+  }
+  if (!file) {
+    uploadResult.dataset.state = "error";
+    uploadResult.textContent = "Choose a document to upload.";
+    fileInput.focus();
+    return;
+  }
   const button = document.querySelector("#upload-button");
   const formData = new FormData();
   formData.append("file", file);
@@ -405,14 +581,24 @@ uploadForm.addEventListener("submit", async (event) => {
   try {
     const response = await fetch("/api/ingest", {
       method: "POST",
-      headers: { admin_key: key },
+      headers: { "admin-key": key },
       body: formData,
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(result.detail || `Upload failed (${response.status})`);
+    if (!response.ok) {
+      throw new Error(
+        formatApiError(result.detail) || `Upload failed (${response.status})`,
+      );
+    }
     uploadResult.dataset.state = "success";
-    uploadResult.textContent = `${result.filename} indexed · ${result.chunks_added} ${result.chunks_added === 1 ? "chunk" : "chunks"} added`;
+    const indexedFilename = result.filename || file.name;
+    const chunksAdded = Number.isInteger(result.chunks_added)
+      ? result.chunks_added
+      : null;
+    uploadResult.textContent =
+      chunksAdded === null
+        ? `${indexedFilename} indexed successfully.`
+        : `${indexedFilename} indexed · ${chunksAdded} ${chunksAdded === 1 ? "chunk" : "chunks"} added`;
     uploadForm.reset();
     document.querySelector("#file-label").textContent =
       "Choose a file to upload";

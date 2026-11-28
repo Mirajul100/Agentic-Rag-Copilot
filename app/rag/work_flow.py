@@ -3,6 +3,7 @@ from typing import Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_tavily import TavilySearch
 from langgraph.graph import StateGraph, START, END
+from langgraph.config import get_stream_writer
 from app.core.config import get_settings
 from app.rag.state import AgentState, RouteDecision, EvidenceGrade
 from app.rag.vector_store import get_retriever
@@ -62,7 +63,19 @@ def web_search_tool():
 def add_trace(state: AgentState, message: str):
     return [*state.get("trace", []), message]
 
+
+def report_tool_progress(tool_id: str, label: str, status: str, detail: str = "") -> None:
+    get_stream_writer()({
+        "type": "tool",
+        "id": tool_id,
+        "label": label,
+        "status": status,
+        "detail": detail,
+    })
+
+
 def route_question(state: AgentState):
+    report_tool_progress("route", "Choose where to look", "running")
     router = llm().with_structured_output(RouteDecision, method="json_mode")
     decision = router.invoke(f"""
 You route messages for an Daffodil internal university support assistant.
@@ -71,16 +84,24 @@ Use direct only for greetings, thanks, or casual chat that needs no university k
 Question: {state['question']}
 Return valid JSON like {{"route":"kb"}}.
 """)
+    route_detail = "Checking university documents." if decision.route == "kb" else "Preparing a direct response."
+    report_tool_progress("route", "Choose where to look", "complete", route_detail)
     return {"source_used": decision.route, "trace": add_trace(state, f"Router → {decision.route.upper()}")}
 
 def route_after_router(state: AgentState) -> Literal["retrieve_kb", "direct_answer"]:
     return "retrieve_kb" if state["source_used"] == "kb" else "direct_answer"
 
 def retrieve_kb(state: AgentState):
+    tool_id = f"kb-search-{state['retry_count']}"
+    report_tool_progress(tool_id, "Search university documents", "running")
     docs = get_retriever().invoke(state["current_query"])
+    result = f"Found {len(docs)} relevant passages." if docs else "No matching passages found."
+    report_tool_progress(tool_id, "Search university documents", "complete", result)
     return {"kb_docs": docs, "trace": add_trace(state, f"Private KB retrieval → {len(docs)} chunks")}
 
 def grade_kb(state: AgentState):
+    tool_id = f"kb-evidence-{state['retry_count']}"
+    report_tool_progress(tool_id, "Check university evidence", "running")
     grader = llm().with_structured_output(EvidenceGrade, method="json_mode")
     context = "\n\n".join(f"Source: {d.metadata.get('source','unknown')}\n{d.page_content}" for d in state["kb_docs"])
     grade = grader.invoke(f"""
@@ -90,12 +111,15 @@ Private university KB evidence:\n{context}
 Return good only if the evidence is sufficient to answer confidently and specifically.
 Otherwise return weak. JSON: {{"grade":"good"}} or {{"grade":"weak"}}.
 """)
+    report_tool_progress(tool_id, "Check university evidence", "complete", "Evidence review complete.")
     return {"kb_grade": grade.grade, "trace": add_trace(state, f"KB evidence grade → {grade.grade.upper()}")}
 
 def after_kb(state: AgentState) -> Literal["generate_from_kb", "search_web"]:
     return "generate_from_kb" if state["kb_grade"] == "good" else "search_web"
 
 def search_web(state: AgentState):
+    tool_id = f"web-search-{state['retry_count']}"
+    report_tool_progress(tool_id, "Search external websites", "running")
     result = web_search_tool().invoke({"query": state["current_query"]})
     lines, citations = [], []
     if isinstance(result, dict):
@@ -107,6 +131,7 @@ def search_web(state: AgentState):
             citations.append({"title": title or url, "url": url, "type": "web"})
     else:
         lines.append(str(result))
+    report_tool_progress(tool_id, "Search external websites", "complete", f"Collected {len(citations)} web sources.")
     return {
         "web_results": "\n\n".join(lines),
         "citations": citations,
@@ -115,6 +140,8 @@ def search_web(state: AgentState):
     }
 
 def grade_web(state: AgentState):
+    tool_id = f"web-evidence-{state['retry_count']}"
+    report_tool_progress(tool_id, "Check web evidence", "running")
     grader = llm().with_structured_output(EvidenceGrade, method="json_mode")
     grade = grader.invoke(f"""
 Question: {state['question']}
@@ -122,6 +149,7 @@ Web evidence:\n{state['web_results']}
 Return good if the evidence is sufficient and directly relevant; otherwise weak.
 Return valid JSON like {{"grade":"good"}}.
 """)
+    report_tool_progress(tool_id, "Check web evidence", "complete", "Evidence review complete.")
     return {"web_grade": grade.grade, "trace": add_trace(state, f"Web evidence grade → {grade.grade.upper()}")}
 
 def after_web(state: AgentState) -> Literal["generate_from_web", "rewrite_query", "insufficient"]:
@@ -132,11 +160,14 @@ def after_web(state: AgentState) -> Literal["generate_from_web", "rewrite_query"
     return "insufficient"
 
 def rewrite_query(state: AgentState):
+    tool_id = f"rewrite-query-{state['retry_count']}"
+    report_tool_progress(tool_id, "Refine search terms", "running")
     rewritten = content_to_text(llm().invoke(f"""
 Rewrite this IT support question for better private knowledge retrieval and vendor web search.
 Preserve intent, add useful technical keywords, do not answer, return only the query.
 Question: {state['question']}
 """).content).strip()
+    report_tool_progress(tool_id, "Refine search terms", "complete", "Search terms ready.")
     return {
         "current_query": rewritten,
         "retry_count": state["retry_count"] + 1,
@@ -144,6 +175,7 @@ Question: {state['question']}
     }
 
 def generate_from_kb(state: AgentState):
+    report_tool_progress("answer", "Write an answer from university sources", "running")
     context = "\n\n".join(f"[Source: {d.metadata.get('source','unknown')}]\n{d.page_content}" for d in state["kb_docs"])
     # Keep .invoke() here; LangGraph intercepts it automatically during graph.stream()
     answer = content_to_text(llm().invoke(f"""
@@ -152,6 +184,7 @@ Be concise, actionable, and safe. If steps are present, present them clearly.
 Do not invent policy details. Mention that the answer is based on the university's private knowledge base.
 Question: {state['question']}\n\nPrivate KB:\n{context}
 """).content)
+    report_tool_progress("answer", "Write an answer from university sources", "complete", "Answer ready.")
     citations = []
     seen = set()
     for d in state["kb_docs"]:
@@ -162,11 +195,13 @@ Question: {state['question']}\n\nPrivate KB:\n{context}
     return {"answer": answer, "source_used": "private_kb", "citations": citations, "trace": add_trace(state, "Answer generation → PRIVATE KB")}
 
 def generate_from_web(state: AgentState):
+    report_tool_progress("answer", "Write an answer from web sources", "running")
     answer = content_to_text(llm().invoke(f"""
 You are an Daffodil internal university support copilot. The private university KB was insufficient.
 Answer ONLY from the web evidence below. Clearly say this is external web information and may need IT validation before changing university-managed systems.
 Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
 """).content)
+    report_tool_progress("answer", "Write an answer from web sources", "complete", "Answer ready.")
     return {
         "answer": answer,
         "source_used": "web_search",
@@ -175,9 +210,11 @@ Question: {state['question']}\n\nWeb evidence:\n{state['web_results']}
     }
 
 def direct_answer(state: AgentState):
+    report_tool_progress("answer", "Prepare a response", "running")
     answer = content_to_text(
         llm().invoke(f"Respond briefly and naturally to: {state['question']}").content
     )
+    report_tool_progress("answer", "Prepare a response", "complete", "Answer ready.")
     return {"answer": answer, "source_used": "direct", "trace": add_trace(state, "Direct response → no retrieval")}
 
 def insufficient(state: AgentState):
@@ -246,9 +283,13 @@ def ask_stream(question: str):
     """Yields structured events: step traces, answer tokens, and final metadata."""
     for mode, data in agent_graph.stream(
         _initial_state(question),
-        stream_mode=["messages", "updates"],
+        stream_mode=["messages", "updates", "custom"],
     ):
-        if mode == "messages":
+        if mode == "custom":
+            if isinstance(data, dict) and data.get("type") == "tool":
+                yield data
+
+        elif mode == "messages":
             msg_chunk, metadata = data
             # Only stream tokens from final answer nodes (ignore router/grader JSON)
             if metadata.get("langgraph_node") in ANSWER_NODES and msg_chunk.content:

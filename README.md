@@ -61,7 +61,14 @@ python run.py
 ```
 
 Use **Add a document** in the app to index PDF, DOCX, TXT, Markdown, CSV, or XLSX
-files. A document must contain readable text and a valid admin key to be indexed.
+files up to 25 MB. A document must contain readable text and a valid admin key to
+be indexed.
+
+Gemini embedding requests are paced to `GEMINI_EMBEDDING_REQUESTS_PER_MINUTE`
+(default `80`) to reduce free-tier rate-limit failures. Set this value below the
+active limit shown for your Gemini API project. If that quota is already exhausted,
+the upload endpoint returns HTTP 429 with a retry message; wait for the quota window
+to reset and retry the upload.
 
 ## Technologies
 - Python
